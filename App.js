@@ -1226,7 +1226,7 @@ export default function App() {
           <View style={[styles.content, styles.contentAuth]}>
             <View style={styles.authBox}>
 
-            <Text style={{ fontSize: 26, fontWeight: '800', color: '#2f6fed', textAlign: 'center', marginBottom: 4 }}>FichaTecnica</Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: '#2f6fed', textAlign: 'center', marginBottom: 4 }}>FichaTech</Text>
             <Text style={styles.title}>Login</Text>
 
             <TextInput

@@ -1,4 +1,4 @@
-# 📋 FichaTécnica
+# 📋 FichaTech
 
 App de campo para técnicos de provedor de internet (fibra óptica). O técnico registra a ficha técnica de cada instalação — dados do cliente, CTO/rede externa, fotos comprobatórias, Wi‑Fi e finalização — com localização capturada na hora e exportação em PDF.
 
