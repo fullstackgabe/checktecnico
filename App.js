@@ -19,11 +19,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import * as Print from 'expo-print';
-import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system';
 import { shareAsync } from 'expo-sharing';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { isValidEmail, formatPhoneBR, toTitleCase, extractOrAcceptMapsLink, isUuid, sanitizeNameInput, dataOrRead } from './utils';
+import { isValidEmail, formatPhoneBR, toTitleCase, isUuid, sanitizeNameInput, dataOrRead } from './utils';
 import {
   listChecklists,
   getChecklist,
@@ -40,8 +39,7 @@ import styles from './styles';
 
 const makeInitialForm = () => ({
   nome: '',
-  ruaNumero: '',
-  locClienteLink: '',
+  endereco: '',
   locCtoLink: '',
   fotoCto: null,
   fotoCtoDataUri: null,
@@ -148,7 +146,6 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportingId, setExportingId] = useState(null);
-  const locClienteRef = useRef(null);
   const locCtoRef = useRef(null);
   const locCasaRef = useRef(null);
   
@@ -411,107 +408,102 @@ export default function App() {
     }
   };
 
+  const getCurrentCoords = async () => {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
+      let best = null;
+      let finalPos = null;
+      try {
+        finalPos = await new Promise((resolve) => {
+          const wid = navigator.geolocation.watchPosition(
+            (p) => {
+              const acc = typeof p?.coords?.accuracy === 'number' ? p.coords.accuracy : null;
+              if (!best || (acc != null && acc < (best?.coords?.accuracy ?? Infinity))) best = p;
+              if (acc != null && acc <= 30) {
+                try { navigator.geolocation.clearWatch(wid); } catch {}
+                resolve(p);
+              }
+            },
+            () => {
+              try { navigator.geolocation.clearWatch(wid); } catch {}
+              resolve(null);
+            },
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+          );
+          setTimeout(() => {
+            try { navigator.geolocation.clearWatch(wid); } catch {}
+            resolve(best);
+          }, 8000);
+        });
+      } catch {}
+      if (finalPos?.coords?.latitude && finalPos?.coords?.longitude) {
+        return { lat: finalPos.coords.latitude, lng: finalPos.coords.longitude };
+      }
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 3000);
+        const resp = await fetch('https://ipinfo.io/json', { signal: ctrl.signal });
+        clearTimeout(to);
+        if (resp && resp.ok) {
+          const j = await resp.json();
+          const parts = typeof j?.loc === 'string' ? j.loc.split(',') : [];
+          if (parts.length === 2) return { lat: Number(parts[0]), lng: Number(parts[1]) };
+        }
+      } catch {}
+      return null;
+    }
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão negada', 'Ative a permissão de localização nas configurações do sistema para continuar.');
+      return null;
+    }
+    try {
+      const provider = await Location.getProviderStatusAsync();
+      if (!provider?.locationServicesEnabled) {
+        Alert.alert('Serviços de localização desligados', 'Ative GPS/Serviços de localização no aparelho para obter sua posição.');
+      }
+    } catch {}
+    let best = null;
+    let resolveFn;
+    const done = new Promise((resolve) => { resolveFn = resolve; });
+    const sub = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 0 },
+      (p) => {
+        const acc = typeof p?.coords?.accuracy === 'number' ? p.coords.accuracy : null;
+        if (!best || (acc != null && acc < (best?.coords?.accuracy ?? Infinity))) best = p;
+        if (acc != null && acc <= 50) resolveFn(p);
+      }
+    );
+    setTimeout(() => resolveFn(best), 12000);
+    const finalPos = await done;
+    try { sub?.remove(); } catch {}
+    if (!(finalPos?.coords?.latitude && finalPos?.coords?.longitude)) {
+      try {
+        const single = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest, maximumAge: 10000 });
+        if (!best || (typeof single?.coords?.accuracy === 'number' && single.coords.accuracy < (best?.coords?.accuracy ?? Infinity))) {
+          best = single;
+        }
+      } catch {}
+    }
+    if (!(best?.coords?.latitude && best?.coords?.longitude)) {
+      try {
+        const last = await Location.getLastKnownPositionAsync();
+        if (last?.coords?.latitude && last?.coords?.longitude) { best = last; }
+      } catch {}
+    }
+    if (best?.coords?.latitude && best?.coords?.longitude) {
+      return { lat: best.coords.latitude, lng: best.coords.longitude };
+    }
+    Alert.alert('Erro', 'Não foi possível obter sua localização no aparelho.');
+    return null;
+  };
+
   const useCurrentLocation = async (fieldKey) => {
     setIsLocating(true);
     setLocatingKey(fieldKey);
     try {
-      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
-        let best = null;
-        let finalPos = null;
-        try {
-          finalPos = await new Promise((resolve) => {
-            const wid = navigator.geolocation.watchPosition(
-              (p) => {
-                const acc = typeof p?.coords?.accuracy === 'number' ? p.coords.accuracy : null;
-                if (!best || (acc != null && acc < (best?.coords?.accuracy ?? Infinity))) best = p;
-                if (acc != null && acc <= 30) {
-                  try { navigator.geolocation.clearWatch(wid); } catch {}
-                  resolve(p);
-                }
-              },
-              () => {
-                try { navigator.geolocation.clearWatch(wid); } catch {}
-                resolve(null);
-              },
-              { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
-            );
-            setTimeout(() => {
-              try { navigator.geolocation.clearWatch(wid); } catch {}
-              resolve(best);
-            }, 8000);
-          });
-        } catch {}
-        if (finalPos && finalPos.coords && finalPos.coords.latitude && finalPos.coords.longitude) {
-          const lat = Number(finalPos.coords.latitude).toFixed(6);
-          const lng = Number(finalPos.coords.longitude).toFixed(6);
-          setField(fieldKey, `https://www.google.com/maps?q=${lat},${lng}`);
-          return;
-        }
-        try {
-          const ctrl = new AbortController();
-          const to = setTimeout(() => ctrl.abort(), 3000);
-          const resp = await fetch('https://ipinfo.io/json', { signal: ctrl.signal });
-          clearTimeout(to);
-          if (resp && resp.ok) {
-            const j = await resp.json();
-            if (j && j.loc && typeof j.loc === 'string') {
-              const parts = j.loc.split(',');
-              if (parts.length === 2) {
-                const lat = parts[0];
-                const lng = parts[1];
-                setField(fieldKey, `https://www.google.com/maps?q=${lat},${lng}`);
-                return;
-              }
-            }
-          }
-        } catch {}
-      } else {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permissão negada', 'Ative a permissão de localização nas configurações do sistema para continuar.');
-          return;
-        }
-        try {
-          const provider = await Location.getProviderStatusAsync();
-          if (!provider?.locationServicesEnabled) {
-            Alert.alert('Serviços de localização desligados', 'Ative GPS/Serviços de localização no aparelho para obter sua posição.');
-          }
-        } catch {}
-        let best = null;
-        let resolveFn;
-        const done = new Promise((resolve) => { resolveFn = resolve; });
-        const sub = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 0 },
-          (p) => {
-            const acc = typeof p?.coords?.accuracy === 'number' ? p.coords.accuracy : null;
-            if (!best || (acc != null && acc < (best?.coords?.accuracy ?? Infinity))) best = p;
-            if (acc != null && acc <= 50) resolveFn(p);
-          }
-        );
-        setTimeout(() => resolveFn(best), 12000);
-        const finalPos = await done;
-        try { sub?.remove(); } catch {}
-        if (!(finalPos?.coords?.latitude && finalPos?.coords?.longitude)) {
-          try {
-            const single = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest, maximumAge: 10000 });
-            if (!best || (typeof single?.coords?.accuracy === 'number' && single.coords.accuracy < (best?.coords?.accuracy ?? Infinity))) {
-              best = single;
-            }
-          } catch {}
-        }
-        if (!(best?.coords?.latitude && best?.coords?.longitude)) {
-          try {
-            const last = await Location.getLastKnownPositionAsync();
-            if (last?.coords?.latitude && last?.coords?.longitude) { best = last; }
-          } catch {}
-        }
-        if (best?.coords?.latitude && best?.coords?.longitude) {
-          const lat = Number(best.coords.latitude).toFixed(6);
-          const lng = Number(best.coords.longitude).toFixed(6);
-          setField(fieldKey, `https://www.google.com/maps?q=${lat},${lng}`);
-        } else {
-          Alert.alert('Erro', 'Não foi possível obter sua localização no aparelho.');
-        }
+      const pos = await getCurrentCoords();
+      if (pos) {
+        setField(fieldKey, `https://www.google.com/maps?q=${Number(pos.lat).toFixed(6)},${Number(pos.lng).toFixed(6)}`);
       }
     } catch {}
     finally {
@@ -520,28 +512,48 @@ export default function App() {
     }
   };
 
-  const pasteFromMaps = async (fieldKey) => {
+  const preencherEndereco = async () => {
+    setIsLocating(true);
+    setLocatingKey('endereco');
     try {
-      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.readText) {
-        const txt = await navigator.clipboard.readText();
-        const val = extractOrAcceptMapsLink(txt);
-        if (val) {
-          setField(fieldKey, val);
-          return;
-        }
-        Alert.alert('Erro', 'Cole um link ou coordenadas válidas do Google Maps.');
-        return;
+      const pos = await getCurrentCoords();
+      if (!pos) return;
+      let rua = '', numero = '', bairro = '', cidade = '';
+      if (Platform.OS === 'web') {
+        const resp = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${pos.lat}&lon=${pos.lng}&zoom=18&addressdetails=1&accept-language=pt-BR`
+        );
+        const j = resp.ok ? await resp.json() : null;
+        const a = j?.address || {};
+        rua = a.road || a.pedestrian || '';
+        numero = a.house_number || '';
+        bairro = a.suburb || a.neighbourhood || a.quarter || '';
+        cidade = a.city || a.town || a.village || a.municipality || '';
       } else {
-        const txt = await Clipboard.getStringAsync();
-        const val = extractOrAcceptMapsLink(txt);
-        if (val) {
-          setField(fieldKey, val);
-          return;
+        const results = await Location.reverseGeocodeAsync({ latitude: pos.lat, longitude: pos.lng });
+        const r = results?.[0];
+        if (r) {
+          rua = r.street || '';
+          numero = r.streetNumber || '';
+          bairro = r.district || '';
+          cidade = r.city || r.subregion || '';
         }
       }
+      if (rua || bairro || cidade) {
+        const partes = [[rua, numero].filter(Boolean).join(', '), bairro, cidade].filter(Boolean);
+        setField('endereco', partes.join(' - '));
+      } else {
+        setBannerType('warn');
+        setSaveModalMessage('Não foi possível identificar o endereço. Preencha manualmente.');
+        setSaveModalVisible(true);
+      }
     } catch {}
-    Alert.alert('Erro', 'Cole um link ou coordenadas válidas do Google Maps.');
+    finally {
+      setIsLocating(false);
+      setLocatingKey(null);
+    }
   };
+
 
   
 
@@ -633,8 +645,7 @@ export default function App() {
     const s = (v) => (v || '').trim();
     return (
       s(form.nome) &&
-      s(form.ruaNumero) &&
-      s(form.locClienteLink) &&
+      s(form.endereco) &&
       s(form.locCtoLink) &&
       s(form.locCasaLink) &&
       s(form.corFibra) &&
@@ -711,8 +722,7 @@ export default function App() {
           <div class="card">
             <div class="cardHeader"><div><span class="badge">1</span><span class="cardTitle">Dados do cliente</span></div></div>
             ${form.nome ? `<div class="row"><span class="label">Nome completo:</span> ${toTitleCase(form.nome)}</div>` : ''}
-            ${form.ruaNumero ? `<div class="row"><span class="label">Rua e número:</span> ${form.ruaNumero}</div>` : ''}
-            ${form.locClienteLink ? `<div class="row"><span class="label">Localização (link do Maps):</span> <span class="link"><a href="${form.locClienteLink}">${form.locClienteLink}</a></span></div>` : ''}
+            ${form.endereco ? `<div class="row"><span class="label">Endereço:</span> ${form.endereco}</div>` : ''}
           </div>
 
           <div class="card">
@@ -792,8 +802,7 @@ export default function App() {
       } catch {}
       const f = {
         nome: row.nome || '',
-        ruaNumero: row.ruaNumero || row.ruanumero || '',
-        locClienteLink: row.locClienteLink || row.locclientelink || '',
+        endereco: row.ruaNumero || row.ruanumero || '',
         locCtoLink: row.locCtoLink || row.locctolink || '',
         fotoCto: row.fotoCto || row.fotocto || null,
         fotoCtoDataUri: row.fotoCtoDataUri || row.fotoctodatauri || null,
@@ -871,8 +880,7 @@ export default function App() {
           <div class="card">
             <div class="cardHeader"><div><span class="badge">1</span><span class="cardTitle">Dados do cliente</span></div></div>
             ${f.nome ? `<div class="row"><span class="label">Nome completo:</span> ${toTitleCase(f.nome)}</div>` : ''}
-            ${f.ruaNumero ? `<div class="row"><span class="label">Rua e número:</span> ${f.ruaNumero}</div>` : ''}
-            ${f.locClienteLink ? `<div class="row"><span class="label">Localização (link do Maps):</span> <span class="link"><a href="${f.locClienteLink}">${f.locClienteLink}</a></span></div>` : ''}
+            ${f.endereco ? `<div class="row"><span class="label">Endereço:</span> ${f.endereco}</div>` : ''}
           </div>
 
           <div class="card">
@@ -936,8 +944,7 @@ export default function App() {
       if (!row) return;
       const loaded = {
         nome: row.nome || '',
-        ruaNumero: row.ruaNumero || row.ruanumero || '',
-        locClienteLink: row.locClienteLink || row.locclientelink || '',
+        endereco: row.ruaNumero || row.ruanumero || '',
         locCtoLink: row.locCtoLink || row.locctolink || '',
         fotoCto: row.fotoCto || row.fotocto || null,
         fotoCtoDataUri: row.fotoCtoDataUri || row.fotoctodatauri || null,
@@ -1370,67 +1377,27 @@ export default function App() {
               spellCheck={false}
             />
 
-            <Text style={styles.label}>🏠 Rua e número</Text>
+            <View style={styles.rowSpaceBetween}>
+              <Text style={styles.label}>🏠 Endereço</Text>
+              <Pressable onPress={preencherEndereco} disabled={isLocating} hitSlop={8}>
+                {isLocating && locatingKey === 'endereco' ? (
+                  <View style={[styles.row, { alignItems: 'center' }]}>
+                    <ActivityIndicator size="small" color="#2f6fed" />
+                    <Text style={{ color: '#2f6fed', fontWeight: '700', fontSize: 13, marginLeft: 6 }}>Carregando...</Text>
+                  </View>
+                ) : (
+                  <Text style={{ color: '#2f6fed', fontWeight: '700', fontSize: 13 }}>📍 Usar minha localização atual</Text>
+                )}
+              </Pressable>
+            </View>
             <TextInput
               style={styles.input}
-              placeholder="Rua e número"
+              placeholder="Rua, número - bairro, cidade"
               placeholderTextColor="#9aa0b5"
-              value={form.ruaNumero}
-              onChangeText={(t) => setField('ruaNumero', toTitleCase(t))}
-              maxLength={50}
+              value={form.endereco}
+              onChangeText={(t) => setField('endereco', t)}
+              maxLength={120}
             />
-
-            <Text style={styles.label}>📍 Localização (link do Maps)</Text>
-            <View style={styles.flex1}>
-              <TextInput
-                style={[
-                  styles.input,
-                  styles.inputInline,
-                  styles.flex1,
-                  form.locClienteLink ? styles.inputLinkReady : null,
-                  Platform.OS === 'web' && form.locClienteLink ? styles.pointerCursor : null,
-                ]}
-                placeholder="https://www.google.com/maps?..."
-                placeholderTextColor="#9aa0b5"
-                value={form.locClienteLink}
-                onChangeText={() => {}}
-                editable={Platform.OS === 'web' ? false : true}
-                showSoftInputOnFocus={Platform.OS === 'web' ? undefined : false}
-                selectTextOnFocus={false}
-                caretHidden
-                ref={locClienteRef}
-                onFocus={() => {
-                  try { locClienteRef.current?.blur(); } catch {}
-                  if (form.locClienteLink) {
-                    if (Platform.OS === 'web') {
-                      const ok = window.confirm('Abrir o link no Google Maps?');
-                      if (ok) { window.open(form.locClienteLink, '_blank', 'noopener,noreferrer'); }
-                    } else {
-                      Alert.alert('Abrir no Maps', 'Deseja abrir o link no Google Maps?', [
-                        { text: 'Cancelar', style: 'cancel' },
-                        { text: 'Abrir', onPress: () => Linking.openURL(form.locClienteLink) },
-                      ]);
-                    }
-                  }
-                }}
-                autoCapitalize="none"
-                autoCorrect={false}
-                spellCheck={false}
-              />
-            </View>
-            <View style={styles.rowSpaceBetween}>
-              <Pressable style={[styles.btn, styles.btnInlineFluid]} onPress={() => useCurrentLocation('locClienteLink')} disabled={isLocating}>
-              <View style={styles.centered}>
-                  {isLocating && locatingKey === 'locClienteLink' ? (
-                <ActivityIndicator color="#fff" style={styles.absolute} />
-                  ) : null}
-                  <Text style={[styles.btnText, isLocating && locatingKey === 'locClienteLink' ? styles.opacity0 : null]}>Puxar Localização</Text>
-                </View>
-              </Pressable>
-              <Pressable style={[styles.btnSecondary, styles.btnInlineFluid]} onPress={() => pasteFromMaps('locClienteLink')}>
-                <Text style={styles.btnSecondaryText}>Colar do Maps</Text>
-              </Pressable>
-            </View>
           </Section>
 
           <Section
@@ -1482,11 +1449,8 @@ export default function App() {
                   {isLocating && locatingKey === 'locCtoLink' ? (
                 <ActivityIndicator color="#fff" style={styles.absolute} />
                   ) : null}
-                  <Text style={[styles.btnText, isLocating && locatingKey === 'locCtoLink' ? styles.opacity0 : null]}>Puxar Localização</Text>
+                  <Text style={[styles.btnText, isLocating && locatingKey === 'locCtoLink' ? styles.opacity0 : null]}>📍 Capturar localização</Text>
                 </View>
-              </Pressable>
-              <Pressable style={[styles.btnSecondary, styles.btnInlineFluid]} onPress={() => pasteFromMaps('locCtoLink')}>
-                <Text style={styles.btnSecondaryText}>Colar do Maps</Text>
               </Pressable>
             </View>
 
@@ -1582,11 +1546,8 @@ export default function App() {
                   {isLocating && locatingKey === 'locCasaLink' ? (
                 <ActivityIndicator color="#fff" style={styles.absolute} />
                   ) : null}
-                  <Text style={[styles.btnText, isLocating && locatingKey === 'locCasaLink' ? styles.opacity0 : null]}>Puxar Localização</Text>
+                  <Text style={[styles.btnText, isLocating && locatingKey === 'locCasaLink' ? styles.opacity0 : null]}>📍 Capturar localização</Text>
                 </View>
-              </Pressable>
-              <Pressable style={[styles.btnSecondary, styles.btnInlineFluid]} onPress={() => pasteFromMaps('locCasaLink')}>
-                <Text style={styles.btnSecondaryText}>Colar do Maps</Text>
               </Pressable>
             </View>
 
