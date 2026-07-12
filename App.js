@@ -533,7 +533,7 @@ export default function App() {
         const a = j?.address || {};
         rua = a.road || a.pedestrian || '';
         numero = a.house_number || '';
-        bairro = a.suburb || a.neighbourhood || a.quarter || '';
+        bairro = a.suburb || a.neighbourhood || a.quarter || a.city_district || a.borough || a.residential || '';
         cidade = a.city || a.town || a.village || a.municipality || '';
       } else {
         const results = await Location.reverseGeocodeAsync({ latitude: pos.lat, longitude: pos.lng });
@@ -546,8 +546,9 @@ export default function App() {
         }
       }
       if (rua || bairro || cidade) {
-        const partes = [[rua, numero].filter(Boolean).join(', '), bairro, cidade].filter(Boolean);
-        setField('endereco', partes.join(' - '));
+        const ruaNum = [rua, numero].filter(Boolean).join(' ');
+        const endereco = [ruaNum, bairro].filter(Boolean).join(', ') + (cidade ? ` - ${cidade}` : '');
+        setField('endereco', endereco);
       } else {
         setBannerType('warn');
         setSaveModalMessage('Não foi possível identificar o endereço. Preencha manualmente.');
@@ -1398,7 +1399,7 @@ export default function App() {
             </View>
             <TextInput
               style={styles.input}
-              placeholder="Rua, número - bairro - cidade"
+              placeholder="Rua e número, bairro - cidade"
               placeholderTextColor="#9aa0b5"
               value={form.endereco}
               onChangeText={(t) => setField('endereco', t)}
