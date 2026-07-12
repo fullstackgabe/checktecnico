@@ -1113,8 +1113,9 @@ export default function App() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centered]}> 
-        <Text>Carregando...</Text>
+      <View style={[styles.container, styles.centered, { justifyContent: 'center', backgroundColor: '#f8f9fc' }]}>
+        <Text style={{ fontSize: 24, fontWeight: '800', color: '#2f6fed', marginBottom: 18 }}>CheckTécnico</Text>
+        <ActivityIndicator size="large" color="#2f6fed" />
       </View>
     );
   }
