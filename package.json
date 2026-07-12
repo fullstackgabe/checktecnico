@@ -1,0 +1,37 @@
+{
+  "name": "fichatecnica",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "ios:clean": "expo start -c --ios",
+    "web:clean": "expo start -c --web",
+    "android:clean": "expo start -c --android"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "@supabase/supabase-js": "^2.81.1",
+    "expo": "54.0.23",
+    "expo-clipboard": "~8.0.7",
+    "expo-file-system": "19.0.17",
+    "expo-image-picker": "^17.0.8",
+    "expo-linear-gradient": "~15.0.7",
+    "expo-location": "^19.0.7",
+    "expo-print": "~15.0.7",
+    "expo-sharing": "~14.0.7",
+    "expo-status-bar": "~3.0.8",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-web": "^0.21.0"
+  },
+  "private": true,
+  "devDependencies": {
+    "@types/react": "~19.1.10",
+    "typescript": "~5.9.2"
+  }
+}
